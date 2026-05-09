@@ -279,13 +279,17 @@
         </div>
 
         <footer>
-            API Key is exposed in client-side code. For production use, deploy with a backend proxy.
+            API Key is secured in Cloudflare Worker. Powered by gpt-image-2.
         </footer>
     </div>
 
     <script>
-        const API_KEY = "sk-af901a02722e771b17623f78735c021d14b66bdccb6b70a40db6e75d1116805b";
-        const BASE_URL = "https://2030.wujixian.fun";
+        // ===================== CONFIG =====================
+        // Deploy the Cloudflare Worker first, then paste its URL here.
+        // Format: https://<your-worker-name>.<your-subdomain>.workers.dev
+        const WORKER_URL = "YOUR_WORKER_URL_HERE";
+        // ==================================================
+
         const MODEL = "gpt-image-2";
 
         let currentBlobUrl = null;
@@ -315,10 +319,13 @@
             error.classList.remove('active');
 
             try {
-                const resp = await fetch(`${BASE_URL}/v1/images/generations`, {
+                if (WORKER_URL === "YOUR_WORKER_URL_HERE") {
+                    throw new Error("Please deploy the Cloudflare Worker first, then set WORKER_URL in index.html.");
+                }
+
+                const resp = await fetch(`${WORKER_URL}/v1/images/generations`, {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${API_KEY}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
