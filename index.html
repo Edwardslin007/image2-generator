@@ -220,6 +220,74 @@
             color: #667eea;
         }
 
+        /* 参考图上传 */
+        .ref-section {
+            margin-top: 20px;
+            border: 1px dashed #333;
+            border-radius: 12px;
+            padding: 14px;
+            background: #131313;
+        }
+        .ref-section .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .ref-section .row label {
+            margin: 0;
+            color: #aaa;
+        }
+        .ref-section .hint {
+            font-size: 0.75rem;
+            color: #666;
+        }
+        .ref-pick {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background: #1a1a1a;
+            color: #ddd;
+            font-size: 0.82rem;
+            cursor: pointer;
+        }
+        .ref-pick:hover { border-color: #667eea; }
+        .ref-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .ref-item {
+            position: relative;
+            width: 84px;
+            height: 84px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #2a2a2a;
+        }
+        .ref-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .ref-item .rm {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            border: none;
+            font-size: 14px;
+            line-height: 18px;
+            cursor: pointer;
+        }
+
         footer {
             text-align: center;
             margin-top: 60px;
@@ -258,6 +326,18 @@
                 </div>
             </div>
 
+            <div class="ref-section">
+                <div class="row">
+                    <label>参考图（可选，可多张）</label>
+                    <div>
+                        <label class="ref-pick" for="refInput">+ 添加图片</label>
+                        <input id="refInput" type="file" accept="image/*" multiple style="display:none">
+                    </div>
+                </div>
+                <div class="hint">不带参考图 = 文生图（1k）；带参考图 = 图生图/编辑（自动 2k）。可多张融合。</div>
+                <div class="ref-list" id="refList"></div>
+            </div>
+
             <button class="btn-generate" id="btnGenerate" onclick="generate()">Generate</button>
         </div>
 
@@ -285,14 +365,48 @@
 
     <script>
         // ===================== CONFIG =====================
-        // Deploy the Cloudflare Worker first, then paste its URL here.
-        // Format: https://<your-worker-name>.<your-subdomain>.workers.dev
-        const WORKER_URL = "https://image2-proxy.edwardslin1130.workers.dev";
+        // 本地开发：留空 = 同源（serve.py 起的 http://127.0.0.1:8765/）
+        // 部署到 Cloudflare Worker 时改成 worker URL，例如：
+        // const API_BASE = "https://image2-proxy.edwardslin1130.workers.dev";
+        const API_BASE = "";
         // ==================================================
 
-        const MODEL = "gpt-image-2";
+        const MODEL = "gpt-image-2"; // 当前启用：opus5 提供
+        // const MODEL = "gpt-image-2"; // 旧的，保留备用
 
-        let currentBlobUrl = null;
+        let currentImageUrl = null;     // 远端 ossdown.com 图片 URL
+        let currentDownloadUrl = null;  // 实际给 <img>/下载用的 URL（走代理）
+
+        // ====== 参考图 ======
+        const refImages = []; // { name, dataUrl }
+
+        function renderRefList() {
+            const box = document.getElementById('refList');
+            box.innerHTML = '';
+            refImages.forEach((it, i) => {
+                const div = document.createElement('div');
+                div.className = 'ref-item';
+                div.innerHTML = `<img src="${it.dataUrl}" alt=""><button class="rm" title="移除">×</button>`;
+                div.querySelector('.rm').onclick = () => {
+                    refImages.splice(i, 1);
+                    renderRefList();
+                };
+                box.appendChild(div);
+            });
+        }
+
+        document.getElementById('refInput').addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    refImages.push({ name: file.name, dataUrl: ev.target.result });
+                    renderRefList();
+                };
+                reader.readAsDataURL(file);
+            });
+            e.target.value = '';
+        });
 
         function setPreset(text) {
             document.getElementById('prompt').value = text;
@@ -318,53 +432,70 @@
             result.classList.remove('active');
             error.classList.remove('active');
 
-            try {
-                if (WORKER_URL === "YOUR_WORKER_URL_HERE") {
-                    throw new Error("Please deploy the Cloudflare Worker first, then set WORKER_URL in index.html.");
-                }
+            const t0 = Date.now();
+            const tick = setInterval(() => {
+                const sec = Math.floor((Date.now() - t0) / 1000);
+                document.querySelector('#loading p').textContent =
+                    `Generating image... ${sec}s${refImages.length ? ` (${refImages.length} 张参考图)` : ''}`;
+            }, 1000);
 
-                const resp = await fetch(`${WORKER_URL}/v1/images/generations`, {
+            try {
+                // 构造 vision 风格 messages
+                // 注意：opus5 这家不支持 size 字段，提示词里也不要带 [size:]，会让上游报 bad_response_status_code
+                const content = [{ type: 'text', text: prompt }];
+                refImages.forEach(it => {
+                    content.push({ type: 'image_url', image_url: { url: it.dataUrl } });
+                });
+
+                const resp = await fetch(`${API_BASE}/v1/chat/completions`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model: MODEL,
-                        prompt: prompt,
-                        n: 1,
-                        size: size,
-                        response_format: 'b64_json',
+                        messages: [{ role: 'user', content }],
                     }),
                 });
 
                 if (!resp.ok) {
                     const errText = await resp.text();
-                    throw new Error(`API error ${resp.status}: ${errText.slice(0, 300)}`);
+                    throw new Error(`API error ${resp.status}: ${errText.slice(0, 400)}`);
                 }
 
                 const data = await resp.json();
-                const images = data.data || [];
 
-                if (!images.length) {
-                    throw new Error('No image data returned from API.');
+                // 这家返回 chat.completion 格式，URL 在 message.content 的 markdown 里
+                let imgUrl = null;
+                const choices = data.choices || [];
+                if (choices.length) {
+                    const text = (choices[0].message || {}).content || '';
+                    const m = text.match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/);
+                    if (m) imgUrl = m[1];
+                }
+                // 兼容旧格式（如果有人切回 /v1/images/generations）
+                if (!imgUrl && Array.isArray(data.data) && data.data[0]) {
+                    if (data.data[0].url) imgUrl = data.data[0].url;
+                    else if (data.data[0].b64_json) {
+                        imgUrl = `data:image/png;base64,${data.data[0].b64_json}`;
+                    }
                 }
 
-                let imgSrc;
-                if (images[0].b64_json) {
-                    imgSrc = `data:image/png;base64,${images[0].b64_json}`;
-                } else if (images[0].url) {
-                    imgSrc = images[0].url;
-                } else {
-                    throw new Error('Unexpected response format.');
+                if (!imgUrl) {
+                    throw new Error('未能从响应中解析出图片 URL：' + JSON.stringify(data).slice(0, 400));
                 }
 
-                currentBlobUrl = imgSrc;
-                document.getElementById('resultImage').src = imgSrc;
+                currentImageUrl = imgUrl;
+                // 通过本地代理加载，绕开图床的 UA / CORS 限制
+                currentDownloadUrl = imgUrl.startsWith('data:')
+                    ? imgUrl
+                    : `${API_BASE}/proxy/img?url=${encodeURIComponent(imgUrl)}`;
+
+                document.getElementById('resultImage').src = currentDownloadUrl;
                 result.classList.add('active');
 
             } catch (e) {
                 showError(e.message);
             } finally {
+                clearInterval(tick);
                 btn.disabled = false;
                 btn.textContent = 'Generate';
                 loading.classList.remove('active');
@@ -377,18 +508,26 @@
             el.classList.add('active');
         }
 
-        function downloadImage() {
-            if (!currentBlobUrl) return;
-            const a = document.createElement('a');
-            a.href = currentBlobUrl;
-            a.download = `generated_${Date.now()}.png`;
-            a.click();
+        async function downloadImage() {
+            if (!currentDownloadUrl) return;
+            try {
+                const r = await fetch(currentDownloadUrl);
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `generated_${Date.now()}.png`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            } catch (e) {
+                showError('下载失败: ' + e.message);
+            }
         }
 
         function copyImageUrl() {
-            if (!currentBlobUrl) return;
-            navigator.clipboard.writeText(currentBlobUrl).then(() => {
-                alert('Image data URL copied to clipboard.');
+            if (!currentImageUrl) return;
+            navigator.clipboard.writeText(currentImageUrl).then(() => {
+                alert('原始图片 URL 已复制到剪贴板');
             });
         }
 

@@ -1,0 +1,29 @@
+# 生成的图片
+generated_*.png
+edited_*.png
+multi_*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+node_modules/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本地密钥文件（永远不要提交）
+.env
+.env.local
+*.secret
