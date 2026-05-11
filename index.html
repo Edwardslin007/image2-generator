@@ -366,9 +366,8 @@
     <script>
         // ===================== CONFIG =====================
         // 本地开发：留空 = 同源（serve.py 起的 http://127.0.0.1:8765/）
-        // 部署到 Cloudflare Worker 时改成 worker URL，例如：
-        // const API_BASE = "https://image2-proxy.edwardslin1130.workers.dev";
-        const API_BASE = "";
+        // 部署到 GitHub Pages 等静态托管时，必须指向 Worker 代理地址
+        const API_BASE = "https://image2-proxy.edwardslin1130.workers.dev";
         // ==================================================
 
         const MODEL = "gpt-image-2"; // 当前启用：opus5 提供
