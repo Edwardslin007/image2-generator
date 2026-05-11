@@ -460,7 +460,17 @@
                     throw new Error(`API error ${resp.status}: ${errText.slice(0, 400)}`);
                 }
 
-                const data = await resp.json();
+                // Worker 以流式返回，需先收集完整数据再解析 JSON
+                const reader = resp.body.getReader();
+                const chunks = [];
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                }
+                const decoder = new TextDecoder();
+                const raw = chunks.map(c => decoder.decode(c, { stream: true })).join('');
+                const data = JSON.parse(raw);
 
                 // 这家返回 chat.completion 格式，URL 在 message.content 的 markdown 里
                 let imgUrl = null;

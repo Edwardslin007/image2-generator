@@ -51,12 +51,12 @@ export default {
                 },
                 body,
             });
-            const respBody = await resp.text();
-            return new Response(respBody, {
+            // Stream the response back — avoids Worker execution timeout on long-running image gen
+            return new Response(resp.body, {
                 status: resp.status,
                 headers: {
                     "Access-Control-Allow-Origin": "*",
-                    "Content-Type": "application/json",
+                    "Content-Type": resp.headers.get("Content-Type") || "application/json",
                 },
             });
         }
