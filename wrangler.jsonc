@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "image2-proxy",
+  "main": "worker.js",
+  "compatibility_date": "2026-05-11",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
